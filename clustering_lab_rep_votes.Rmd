@@ -1,0 +1,223 @@
+---
+title: "Clustering Lab: Rep Votes"
+author: "Xander Atalay"
+date: "10/06/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Goal: Know how to make decisions and answer questions using clustering. 
+
+Repeat the clustering process only using the Rep house votes dataset
+- What differences and similarities did you see between how the clustering 
+worked for the datasets?
+
+```{r Loading Libraries}
+library(e1071)
+library(tidyverse)
+library(plotly)
+library(htmltools)
+library(devtools)
+library(NbClust)
+```
+
+```{r Loading in Data}
+#Select the variables to be included in the cluster 
+
+RepDataRaw <- read.csv("house_votes_Rep.csv")
+# Seperating variables of interest, removing party and name.
+Rep <- RepDataRaw[, c("aye", "nay", "other")]
+
+str(Rep)
+```
+
+```{r Running Clustering Algorithm}
+#Run the clustering algo with 2 centers
+
+set.seed(1)
+kmeans_Rep = kmeans(Rep, 
+                    centers = 2, 
+                    algorithm = "Lloyd") 
+
+```
+
+```{r Viewing Initial Cluster Data}
+#View the results
+kmeans_Rep
+head(kmeans_Rep)
+```
+
+```{r Visualizing Initial Cluster Data}
+#Visualize the output
+Rep_Clusters = as.factor(kmeans_Rep$cluster)
+
+# What does the kmeans_obj look like?
+
+(ggplot(Rep, aes(x = aye, 
+                y = nay,
+                shape = Rep_Clusters)) + 
+  geom_point(size = 6) +
+  ggtitle("Aye vs. Nay votes for Republican-introduced bills") +
+  xlab("Number of Aye Votes") +
+  ylab("Number of Nay Votes") +
+  scale_shape_manual(name = "Cluster", 
+                     labels = c("Cluster 1", "Cluster 2"),
+                     values = c("1", "2")) +
+  theme_light())
+
+```
+
+```{r Refining Visualization and Evaluating.}
+#Evaluate the quality of the clustering 
+(ggplot(RepDataRaw, aes(x = aye, 
+                y = nay,
+                color = party.labels,
+                shape = Rep_Clusters)) + 
+  geom_point(size = 6) +
+  ggtitle("Aye vs. Nay votes for Republican-introduced bills") +
+  xlab("Number of Aye Votes") +
+  ylab("Number of Nay Votes") +
+  scale_shape_manual(name = "Cluster", 
+                     labels = c("Cluster 1", "Cluster 2"),
+                     values = c("1", "2")) +
+  scale_color_manual(name = "Party",
+                     labels = c("Republican", "Democratic"),
+                     values = c("red", "blue")) +
+  theme_light())
+
+
+ggsave("US House Votes for Rep Bills.png", 
+       width = 10, 
+       height = 5.62, 
+       units = "in")
+```
+
+```{r Evaluating Different Cluster Number Models}
+#Use the function we created to evaluate several different number of clusters
+
+explained_variance = function(data_in, k){
+  
+  # Running the kmeans algorithm.
+  set.seed(1)
+  kmeans_obj = kmeans(data_in, centers = k, algorithm = "Lloyd", iter.max = 30)
+  
+  # Variance accounted for by clusters:
+  # var_exp = intercluster variance / total variance
+  var_exp = kmeans_obj$betweenss / kmeans_obj$totss
+  return(var_exp)
+}
+
+explained_variance(Rep, 2) 
+# Clusters = 2, Variance = 0.7952692
+
+explained_variance(Rep, 3)
+# Clusters = 3, Variance = 0.8462368 <- Not a very large variance increase
+
+explained_variance(Rep, 4)
+# Clusters = 4, Variance = 0.8743898
+
+explained_variance(Rep, 5)
+# Clusters = 5, Variance = 0.8897348 <- very small variance increase
+
+explained_variance(Rep, 6)
+# Clusters = 6, Variance = 0.9095485 <- very small variance increase
+
+```
+
+```{r Creating an Elbow Chart}
+#Create a elbow chart of the output 
+
+explained_var_Rep = sapply(1:10, explained_variance, data_in = Rep)
+
+View(explained_var_Rep)
+
+elbow_data_Rep = data.frame(k = 1:10, explained_var_Rep)
+View(elbow_data_Rep)
+# Shows us the variance for each increasing number of clusters.
+
+ggplot(elbow_data_Rep, 
+       aes(x = k,  
+           y = explained_var_Rep)) + 
+  geom_point(size = 4) +
+  geom_line(size = 1) +
+  xlab('k') + 
+  ylab('Inter-cluster Variance / Total Variance') + 
+  theme_light()
+
+# Elbow plot clearly shows that 2 clusters is the best model.
+```
+
+```{r Using NbClust}
+#Use NbClust to select a number of clusters
+
+(nbclust_obj_Rep = NbClust(data = Rep, method = "kmeans"))
+
+nbclust_obj_Rep
+# View the output that shows the number of clusters each method recommends.
+View(nbclust_obj_Rep$Best.nc)
+
+```
+
+```{r Visualizing NbClust}
+#Display the results visually 
+# Subset the 1st row from Best.nc and convert it 
+# to a data frame so ggplot2 can plot it.
+freq_k_Rep = data.frame(nbclust_obj_Rep$Best.nc[1,])
+
+# Check the maximum number of clusters suggested.
+max(freq_k_Rep)
+
+# Plot as a histogram.
+(ggplot(freq_k_Rep,
+       aes(x = freq_k_Rep[,1])) +
+  geom_bar() +
+  scale_x_continuous(breaks = seq(0, 15, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 12, by = 1)) +
+  labs(x = "Number of Clusters",
+       y = "Number of Votes",
+       title = "Cluster Analysis"))
+
+```
+
+```{r Cluster Number Comparison}
+#Using the recommended number of cluster compare the quality of the model with 2 clusters 
+
+# The recommended number of clusters is 2, meaning that we 
+
+```
+
+```{r Creating 3-Dimensional Representation}
+#Bonus: Create a 3d version of the output
+
+# Assign colors by party in a new data frame.
+party_color3D_Rep = data.frame(party.labels = c("Democrat", "Republican"),
+                               color = c("blue", "red"))
+
+house_votes_color_Rep = inner_join(RepDataRaw, party_color3D_Rep)
+
+house_votes_color_Rep$clusters <- (Rep_Clusters)
+
+house_votes_color_Rep$Last.Name <- gsub("[^[:alnum:]]", "", house_votes_color_Rep$Last.Name)
+
+# Use plotly to do a 3d imaging
+
+Rep_fig <- plot_ly(house_votes_color_Rep,
+               type = "scatter3d",
+               mode="markers",
+               symbol = ~clusters,
+               x = ~aye,
+               y = ~nay,
+               z = ~other,
+               color = ~color,
+               colors = c('#0C4B8E','#BF382A'),
+               text = ~paste('Representative:',Last.Name,
+                             "Party:",party.labels))
+
+Rep_fig
+dev.off()
+```

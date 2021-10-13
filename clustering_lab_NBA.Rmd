@@ -1,0 +1,276 @@
+---
+title: "Clustering Lab: NBA"
+author: "Xander Atalay"
+date: "10/06/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Our goal here is to create a clustering model to determine the best performing group(s) in the NBA, and then determine which athletes in that group has the lowest salary, allowing us to make the most economically efficient decision on who to recruit.
+
+The first step is to load in the libraries, then the NBA Data.
+
+After that, we just need to normalize the data and make a K Means model using the kmeans() function. We'll start with 2 centers, but we will experiment with different centers later to see what works best.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = TRUE)
+```
+
+```{r Loading Libraries}
+library(e1071)
+library(tidyverse)
+library(plotly)
+library(htmltools)
+library(devtools)
+library(NbClust)
+```
+
+```{r Loading in NBA Data}
+#Select the variables to be included in the cluster 
+
+NBA_stats <- read.csv("nba2020-21.csv")
+NBA_salaries <- read.csv("nba_salaries_21.csv")
+
+NBA <- merge(NBA_stats, NBA_salaries, by = "Player")
+NBA <- na.omit(NBA)
+
+```
+
+```{r Normalizing NBA Data and Adding Performance Variable}
+
+normalize <- function(x){
+ (x - min(x))/(max(x) - min(x))
+}
+
+numeric_NBA <- names(select_if(NBA, is.numeric))
+
+NBA[numeric_NBA] <- as.data.frame(lapply(NBA[numeric_NBA], normalize))
+
+NBA_drop <- c("Player", "Tm", "Pos", "X2020.21")
+NBA_Data <- NBA[, !(names(NBA)) %in% NBA_drop]
+NBA$Salary <- NBA$X2020.21
+# 
+# str(NBA)
+# str(NBA_Data)
+
+```
+
+```{r Running Clustering Algorithm, echo = TRUE}
+#Run the clustering algo with 2 centers
+
+set.seed(1)
+kmeans_NBA = kmeans(NBA_Data, 
+                    centers = 2, 
+                    algorithm = "Lloyd") 
+
+```
+
+```{r Viewing Initial Cluster Data}
+#View the results
+# kmeans_NBA
+# head(kmeans_NBA)
+```
+
+After we view the initial cluster data, we can visualize the data with a simple plot, using two variables that I think will be most important to a player's performance cluster. These variables are minutes played and total points scored. Points scored represents a players contribution to their team's total points earned over the course of a season, and their minutes played, while correlated with total points, shows that their coaches believe them to be the best players on their team.
+
+```{r Visualizing Initial Cluster Data}
+#Visualize the output
+NBA_Clusters = as.factor(kmeans_NBA$cluster)
+
+# What does the kmeans_obj look like?
+
+(ggplot(NBA, aes(y = MP, 
+                x = PTS,
+                shape = NBA_Clusters)) + 
+  geom_point(size = 6) +
+  ggtitle("Minutes Per Game vs. Points for NBA Players") +
+  xlab("Points Earned") +
+  ylab("Minutes Played") +
+  scale_shape_manual(name = "Cluster", 
+                     labels = c("Cluster 1", "Cluster 2"),
+                     values = c("1", "2")) +
+  theme_light())
+
+```
+
+We can refine the visualization and add in the salary data, giving us an early sense of which athletes are underpaid for their performance.
+
+```{r Refining Visualization and Evaluating.}
+#Evaluate the quality of the clustering 
+(ggplot(NBA, aes(x = PTS, 
+                y = MP,
+                color = Salary,
+                shape = NBA_Clusters)) + 
+  geom_point(size = 7) +
+  ggtitle("Minutes Per Game vs. Points for NBA Players") +
+  xlab("Points Earned") +
+  ylab("Minutes Played") +
+  scale_shape_manual(name = "Cluster", 
+                     labels = c("Cluster 1", "Cluster 2"),
+                     values = c("1", "2")) +
+   scale_color_viridis_b(option="plasma") +
+   theme_light())
+   # theme(panel.background = element_rect(fill = "grey10"))
+
+```
+
+We can use the explained variance function to test out the variances of some different numbers of clusters.
+
+```{r Evaluating Different Cluster Number Models}
+#Use the function we created to evaluate several different number of clusters
+
+explained_variance = function(data_in, k){
+  
+  # Running the kmeans algorithm.
+  set.seed(1)
+  kmeans_obj = kmeans(data_in, centers = k, algorithm = "Lloyd", iter.max = 30)
+  
+  # Variance accounted for by clusters:
+  # var_exp = intercluster variance / total variance
+  var_exp = kmeans_obj$betweenss / kmeans_obj$totss
+  return(var_exp)
+}
+
+cat("Variance of a 2 cluster model: ")
+explained_variance(NBA_Data, 2) 
+# Clusters = 2, Variance = 0.4216215
+
+cat("Variance of a 3 cluster model: ")
+explained_variance(NBA_Data, 3)
+# Clusters = 3, Variance = 0.5456615 <- Solid Variance Increase
+
+cat("Variance of a 4 cluster model: ")
+explained_variance(NBA_Data, 4)
+# Clusters = 4, Variance = 0.5885608
+
+cat("Variance of a 5 cluster model: ")
+explained_variance(NBA_Data, 5)
+# Clusters = 5, Variance = 0.6343673
+
+cat("Variance of a 6 cluster model: ")
+explained_variance(NBA_Data, 6)
+# Clusters = 6, Variance = 0.6491062 <- very small variance increase
+
+```
+
+```{r Creating an Elbow Chart}
+#Create a elbow chart of the output 
+# Complexity vs Accuracy
+
+explained_var_NBA = sapply(1:10, explained_variance, data_in = NBA_Data)
+
+elbow_data_NBA = data.frame(k = 1:10, explained_var_NBA)
+# Shows us the variance for each increasing number of clusters.
+
+ggplot(elbow_data_NBA, 
+       aes(x = k,  
+           y = explained_var_NBA)) + 
+  geom_point(size = 4) +
+  geom_line(size = 1) +
+  xlab('k') + 
+  ylab('Inter-cluster Variance / Total Variance') + 
+  theme_light()
+
+# Elbow plot clearly shows that 3 clusters might produce the best model.
+```
+
+It seems like 3 clusters provides the best compromise between simplicity and accuracy in the model, but we'll check using the NbClust function.
+
+```{r Using NbClust}
+#Use NbClust to select a number of clusters
+
+nbclust_obj_NBA <- NbClust(data = NBA_Data[,c("PTS", "MP", "FT")], method = "kmeans")
+
+# nbclust_obj_NBA
+# View the output that shows the number of clusters each method recommends.
+
+```
+
+```{r Visualizing NbClust}
+#Display the results visually 
+# Subset the 1st row from Best.nc and convert it 
+# to a data frame so ggplot2 can plot it.
+freq_k_NBA = data.frame(nbclust_obj_NBA$Best.nc[1,])
+
+# Check the maximum number of clusters suggested.
+# max(freq_k_NBA)
+
+# Plot as a histogram.
+(ggplot(freq_k_NBA,
+       aes(x = freq_k_NBA[,1])) +
+  geom_bar() +
+  scale_x_continuous(breaks = seq(0, 15, by = 1)) +
+  scale_y_continuous(breaks = seq(0, 12, by = 1)) +
+  labs(x = "Number of Clusters",
+       y = "Number of Votes",
+       title = "Cluster Analysis"))
+
+```
+
+The recommended number of clusters is 3, which has a variance improvement of 0.12404 over our initial 2 cluster model.
+
+```{r Cluster Number Comparison}
+#Using the recommended number of cluster compare the quality of the model with 2 clusters 
+
+set.seed(1)
+kmeans_NBA_3 = kmeans(NBA_Data, 
+                    centers = 3, 
+                    algorithm = "Lloyd") 
+NBA_Clusters_3 = as.factor(kmeans_NBA_3$cluster)
+
+(ggplot(NBA, aes(x = PTS, 
+                y = MP,
+                color = Salary,
+                shape = NBA_Clusters_3)) + 
+  geom_point(size = 7) +
+  ggtitle("Minutes Per Game vs. Points for NBA Players") +
+  xlab("Points Earned") +
+  ylab("Minutes Played") +
+  scale_shape_manual(name = "Cluster", 
+                     labels = c("Cluster 1", "Cluster 2", "Cluster 3"),
+                     values = c("1", "2", "3")) +
+   scale_color_viridis_b(option="plasma") +
+   theme_light())
+
+print("The difference in variance between a model with 2 clusters vs one with three clusters is: ")
+explained_variance(NBA_Data, 3) - explained_variance(NBA_Data, 2)
+
+# The recommended number of clusters is 3, which has a variance improvement of 0.12404 over our inital 2 cluster model.
+
+```
+
+Using the clustering model we've created, if we wanted to pick out players to recruit, we would want to look at the players in the highest performing cluser that are being payed the lowest salary. The easiest way to do this is by adding player names to a 3 dimensional plot. The extra parameter added is total free throw points, which seems to align with the clusters we've created.
+
+```{r Creating 3-Dimensional Representation}
+#Bonus: Create a 3d version of the output
+
+# Assign colors by party in a new data frame.
+
+NBA_3D <- NBA
+
+NBA_3D$clusters <- (NBA_Clusters_3)
+
+NBA_3D$Name <- gsub("[^[:alnum:]]", " ", NBA_3D$Player)
+
+# Use plotly to do a 3d imaging
+
+NBA_fig <- plot_ly(NBA_3D,
+               type = "scatter3d",
+               mode="markers",
+               symbol = ~clusters,
+               color = ~Salary,
+               colors = "inferno",
+               symbols = c("diamond","circle","square"),
+               x = ~PTS,
+               y = ~MP,
+               z = ~FT,
+               text = ~paste('Player: ',Name))
+
+NBA_fig
+```
+
+Based on the 3 dimensional plot above, we can see that the players at the top of the highest performing cluster with the lowest salary are 
+Trae Young, Luka Don, and Zion Williamson. These players are all in the top cluster of performance, but have much lower salaries than many of the similarly performing players. Therefore, the most financially efficient drafts would be these three players.
+
+
