@@ -271,6 +271,6 @@ NBA_fig
 ```
 
 Based on the 3 dimensional plot above, we can see that the players at the top of the highest performing cluster with the lowest salary are 
-Trae Young, Luka Don, and Zion Williamson. These players are all in the top cluster of performance, but have much lower salaries than many of the similarly performing players. Therefore, the most financially efficient drafts would be these three players.
+Trae Young, Luka Dončić, and Zion Williamson. These players are all in the top cluster of performance, but have much lower salaries than many of the similarly performing players. Therefore, the most financially efficient drafts would be these three players.
 
 
