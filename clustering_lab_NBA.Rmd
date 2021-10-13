@@ -124,7 +124,8 @@ explained_variance = function(data_in, k){
   
   # Running the kmeans algorithm.
   set.seed(1)
-  kmeans_obj = kmeans(data_in, centers = k, algorithm = "Lloyd", iter.max = 30)
+  kmeans_obj = kmeans(data_in, centers = k, algorithm = "Lloyd", iter.max =
+                        30)
   
   # Variance accounted for by clusters:
   # var_exp = intercluster variance / total variance
